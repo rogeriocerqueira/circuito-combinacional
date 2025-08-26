@@ -1,0 +1,10 @@
+module somador_subtrator_4bits (
+    input [3:0] A,
+    input [3:0] B,
+    input op,            // 0 = soma, 1 = subtração
+    output [3:0] S
+);
+
+    assign S = (op == 0) ? (A + B) : (A - B);
+
+endmodule
