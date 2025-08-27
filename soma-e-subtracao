@@ -1,57 +1,52 @@
-module operacoes (
-    input [9:0] SW,           // Switches para entrada de dados
-    input [1:0] KEY,          // Botões para seleção de operação
-    output [9:0] LEDR,        // LEDs vermelhos para saída
-    output [7:0] HEX0,        // Display 7-seg para resultado
-    output [7:0] HEX1,        // Display 7-seg para resultado
-    output [7:0] HEX2,        // Display 7-seg para operação
-    output [7:0] HEX3         // Display 7-seg para operação
+module operacoes_estrutural (
+    input [9:0] SW,            // SW[3:0] = A, SW[7:4] = B
+    input [1:0] KEY,           // KEY[0] troca operação
+    output [9:0] LEDR,         // LEDs para resultado
+    output [7:0] HEX0, HEX1,   // Displays resultado
+    output [7:0] HEX2, HEX3    // Displays operação
 );
 
-    // Entradas
-    wire [3:0] A = SW[3:0];   // Primeiro operando (4 bits)
-    wire [3:0] B = SW[7:4];   // Segundo operando (4 bits)
-    
-    // Seleção de operação
-    reg [1:0] operacao;
+    wire [3:0] A, B;
+    assign A = SW[3:0];
+    assign B = SW[7:4];
+
+    // Registrador para operação
+    reg [1:0] operacao = 2'b00;
     always @(negedge KEY[0]) begin
         operacao <= operacao + 1'b1;
     end
-    
-    // Resultados das operações
-    wire [4:0] soma;          // 5 bits para carry
-    wire [3:0] subtracao;
-    wire [3:0] and_result;
-    wire [3:0] xor_result;
-    reg [4:0] resultado;      // 5 bits para acomodar carry
-    
-    // Operações
-    assign soma = A + B;
-    assign subtracao = A - B;
-    assign and_result = A & B;
-    assign xor_result = A ^ B;
-    
-    // Seleção do resultado baseado na operação
-    always @(*) begin
-        case(operacao)
-            2'b00: resultado = {1'b0, soma[3:0]};     // Soma
-            2'b01: resultado = {1'b0, subtracao};     // Subtração
-            2'b10: resultado = {1'b0, and_result};    // AND
-            2'b11: resultado = {1'b0, xor_result};    // XOR
-            default: resultado = 5'b00000;
-        endcase
-    end
-    
-    // Saídas para LEDs
-    assign LEDR[3:0] = resultado[3:0];    // Resultado principal
-    assign LEDR[4] = resultado[4];        // Carry/borrow
-    assign LEDR[9:8] = operacao;          // Mostra operação atual
-    
-    // Display 7-segmentos para resultado
-    hex_to_7seg hex0(.hex(resultado[3:0]), .seg(HEX0));
-    hex_to_7seg hex1(.hex(4'b0), .seg(HEX1)); // Display vazio
-    
-    // Display para mostrar a operação
+
+    // Resultados individuais
+    wire [4:0] soma, subtracao;
+    wire [3:0] and_result, xor_result;
+    wire [4:0] resultado;
+
+    // Instancia módulos das operações
+    somador_4bits U1 (.A(A), .B(B), .S(soma));
+    subtrator_4bits U2 (.A(A), .B(B), .S(subtracao));
+    and_4bits U3 (.A(A), .B(B), .S(and_result));
+    xor_4bits U4 (.A(A), .B(B), .S(xor_result));
+
+    // Mux para selecionar resultado
+    mux4x1_5bits U5 (
+        .d0(soma),
+        .d1({1'b0, subtracao[3:0]}),
+        .d2({1'b0, and_result}),
+        .d3({1'b0, xor_result}),
+        .sel(operacao),
+        .y(resultado)
+    );
+
+    // LEDs
+    assign LEDR[3:0] = resultado[3:0];
+    assign LEDR[4] = resultado[4];
+    assign LEDR[9:8] = operacao;
+
+    // Conversão para displays
+    hex_to_7seg disp0 (.hex(resultado[3:0]), .seg(HEX0));
+    hex_to_7seg disp1 (.hex(4'b0000), .seg(HEX1));
+
+    // Mostra operação no display
     reg [3:0] op_display;
     always @(*) begin
         case(operacao)
@@ -62,36 +57,72 @@ module operacoes (
             default: op_display = 4'h0;
         endcase
     end
-    
-    hex_to_7seg hex2(.hex(op_display), .seg(HEX2));
-    hex_to_7seg hex3(.hex(4'b0), .seg(HEX3)); // Display vazio
+    hex_to_7seg disp2 (.hex(op_display), .seg(HEX2));
+    hex_to_7seg disp3 (.hex(4'b0000), .seg(HEX3));
 
 endmodule
 
-// Módulo para conversão hexadecimal para 7 segmentos
+// ================== SUBMÓDULOS =====================
+
+// Somador de 4 bits
+module somador_4bits(input [3:0] A, B, output [4:0] S);
+    assign S = A + B;
+endmodule
+
+// Subtrator de 4 bits
+module subtrator_4bits(input [3:0] A, B, output [4:0] S);
+    assign S = A - B;
+endmodule
+
+// AND 4 bits
+module and_4bits(input [3:0] A, B, output [3:0] S);
+    assign S = A & B;
+endmodule
+
+// XOR 4 bits
+module xor_4bits(input [3:0] A, B, output [3:0] S);
+    assign S = A ^ B;
+endmodule
+
+// Multiplexador 4x1 de 5 bits
+module mux4x1_5bits (
+    input [4:0] d0, d1, d2, d3,
+    input [1:0] sel,
+    output reg [4:0] y
+);
+    always @(*) begin
+        case(sel)
+            2'b00: y = d0;
+            2'b01: y = d1;
+            2'b10: y = d2;
+            2'b11: y = d3;
+            default: y = 5'b00000;
+        endcase
+    end
+endmodule
+
+// Conversor HEX para display 7 segmentos
 module hex_to_7seg (
     input [3:0] hex,
     output reg [7:0] seg
 );
     always @(*) begin
         case(hex)
-            4'h0: seg = 8'b11000000; // 0
-            4'h1: seg = 8'b11111001; // 1
-            4'h2: seg = 8'b10100100; // 2
-            4'h3: seg = 8'b10110000; // 3
-            4'h4: seg = 8'b10011001; // 4
-            4'h5: seg = 8'b10010010; // 5
-            4'h6: seg = 8'b10000010; // 6
-            4'h7: seg = 8'b11111000; // 7
-            4'h8: seg = 8'b10000000; // 8
-            4'h9: seg = 8'b10010000; // 9
-            4'hA: seg = 8'b10001000; // A (Soma)
-            4'hB: seg = 8'b10000011; // B (Subtração)
-            4'hC: seg = 8'b11000110; // C (AND)
-            4'hD: seg = 8'b10100001; // D (XOR)
-            4'hE: seg = 8'b10000110; // E
-            4'hF: seg = 8'b10001110; // F
-            default: seg = 8'b11111111; // Apagado
+            4'h0: seg = 8'b11000000;
+            4'h1: seg = 8'b11111001;
+            4'h2: seg = 8'b10100100;
+            4'h3: seg = 8'b10110000;
+            4'h4: seg = 8'b10011001;
+            4'h5: seg = 8'b10010010;
+            4'h6: seg = 8'b10000010;
+            4'h7: seg = 8'b11111000;
+            4'h8: seg = 8'b10000000;
+            4'h9: seg = 8'b10010000;
+            4'hA: seg = 8'b10001000; // A = Soma
+            4'hB: seg = 8'b10000011; // B = Subtração
+            4'hC: seg = 8'b11000110; // C = AND
+            4'hD: seg = 8'b10100001; // D = XOR
+            default: seg = 8'b11111111;
         endcase
     end
 endmodule
